@@ -1,0 +1,24 @@
+{
+  "name": "nanoclaw-hindsight-mcp",
+  "version": "1.0.0",
+  "description": "MCP server wrapping Hindsight (vectorize.io) — exposes memory_recall + memory_retain tools for NanoClaw's MEMORY_MCP_URL contract.",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vectorize-io/hindsight-client": "^0.4.22",
+    "express": "^4.21.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

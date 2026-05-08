@@ -1,0 +1,47 @@
+# nanoclaw-hindsight — full stack: hindsight memory service + MCP wrapper.
+#
+# After /add-hindsight applies, this stack runs alongside NanoClaw and
+# provides the MEMORY_MCP_URL endpoint the host listens for.
+#
+# Ports (all on host loopback by default — adjust if you need remote
+# access via WireGuard etc.):
+#   4410 → hindsight HTTP API
+#   4411 → hindsight web UI
+#   4412 → hindsight-mcp wrapper (MCP server, the one NanoClaw connects to)
+#
+# Env vars (set in .env beside this file):
+#   HINDSIGHT_LLM_API_KEY  — API key for embeddings (OpenAI etc.)
+
+services:
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    pull_policy: always
+    ports:
+      - "127.0.0.1:4410:8888"
+      - "127.0.0.1:4411:9999"
+    environment:
+      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_LLM_API_KEY}
+    volumes:
+      - hindsight-data:/home/hindsight/.pg0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8888/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  hindsight-mcp:
+    build: .
+    image: nanoclaw-hindsight-mcp:latest
+    ports:
+      - "127.0.0.1:4412:4412"
+    environment:
+      PORT: 4412
+      HINDSIGHT_URL: http://hindsight:8888
+    depends_on:
+      hindsight:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  hindsight-data:
