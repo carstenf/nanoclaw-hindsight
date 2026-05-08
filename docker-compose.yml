@@ -3,14 +3,19 @@
 # After /add-hindsight applies, this stack runs alongside NanoClaw and
 # provides the MEMORY_MCP_URL endpoint the host listens for.
 #
-# Ports (all on host loopback by default — adjust if you need remote
-# access via WireGuard etc.):
-#   4410 → hindsight HTTP API
-#   4411 → hindsight web UI
-#   4412 → hindsight-mcp wrapper (MCP server, the one NanoClaw connects to)
+# Ports:
+#   4410 → hindsight HTTP API (loopback only)
+#   4411 → hindsight web UI (loopback only — keep private, has memory dump)
+#   4412 → hindsight-mcp wrapper (MCP server). Bound to loopback AND WG IP
+#          (10.0.0.2) so a Caddy reverse_proxy on Hetzner can reach it.
+#          Public access requires HINDSIGHT_MCP_BEARER.
 #
 # Env vars (set in .env beside this file):
-#   HINDSIGHT_LLM_API_KEY  — API key for embeddings (OpenAI etc.)
+#   HINDSIGHT_LLM_API_KEY    — API key for embeddings (OpenAI etc.)
+#   HINDSIGHT_MCP_BEARER     — bearer token for the wrapper (optional;
+#                              required when route is public)
+#   HINDSIGHT_WG_BIND        — WG IP this host advertises on (default
+#                              10.0.0.2). Set empty to disable WG bind.
 
 services:
   hindsight:
@@ -25,19 +30,22 @@ services:
       - hindsight-data:/home/hindsight/.pg0
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8888/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8888/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 30s
 
   hindsight-mcp:
     build: .
     image: nanoclaw-hindsight-mcp:latest
     ports:
       - "127.0.0.1:4412:4412"
+      - "${HINDSIGHT_WG_BIND:-10.0.0.2}:4412:4412"
     environment:
       PORT: 4412
       HINDSIGHT_URL: http://hindsight:8888
+      HINDSIGHT_MCP_BEARER: ${HINDSIGHT_MCP_BEARER:-}
     depends_on:
       hindsight:
         condition: service_started

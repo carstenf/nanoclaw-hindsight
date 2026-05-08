@@ -31,6 +31,11 @@ const PORT = Number(process.env.PORT ?? 4412);
 const HINDSIGHT_URL =
   process.env.HINDSIGHT_URL ?? 'http://hindsight:8888';
 
+// Optional bearer auth. Required when the wrapper is exposed beyond loopback
+// (e.g. via Caddy reverse_proxy). Trunk-only / loopback-only deployments may
+// leave it unset.
+const BEARER = process.env.HINDSIGHT_MCP_BEARER ?? '';
+
 const hindsight = new HindsightClient({ baseUrl: HINDSIGHT_URL });
 
 function bankIdFor(group: string): string {
@@ -129,13 +134,29 @@ async function main(): Promise<void> {
   app.use(express.json({ limit: '4mb' }));
 
   app.get('/health', (_req, res) => {
-    res.json({ ok: true, hindsight_url: HINDSIGHT_URL, port: PORT });
+    res.json({
+      ok: true,
+      hindsight_url: HINDSIGHT_URL,
+      port: PORT,
+      auth: BEARER ? 'bearer' : 'none',
+    });
   });
 
   // Per-session McpServer (Pitfall 1 / SDK Issue #1405). Fresh server +
   // transport on every POST /mcp; the transport pumps the request/response
   // and closes when the JSON-RPC exchange is done.
   app.post('/mcp', async (req, res) => {
+    if (BEARER) {
+      const auth = req.header('authorization') ?? '';
+      if (auth !== `Bearer ${BEARER}`) {
+        res.status(401).json({
+          jsonrpc: '2.0',
+          error: { code: -32001, message: 'unauthorized' },
+          id: null,
+        });
+        return;
+      }
+    }
     const server = makeServer();
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless mode — no session reuse
