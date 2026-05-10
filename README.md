@@ -1,79 +1,83 @@
 # nanoclaw-hindsight
 
-MCP-pluggable memory provider for [NanoClaw](https://github.com/qwibitai/nanoclaw),
-backed by [Hindsight](https://hindsight.vectorize.io/) (vectorize.io biomimetic
-agentic memory).
+[NanoClaw](https://github.com/qwibitai/nanoclaw) install skill that wires
+agent groups to a separately-running [Hindsight](https://hindsight.vectorize.io/)
+memory backend. Agents get three MCP tools — `memory_retain`,
+`memory_recall`, `memory_reflect` — namespaced per group folder.
 
-This repo ships a Docker stack and a small MCP-server wrapper that satisfies
-NanoClaw's generic `MEMORY_MCP_URL` contract — namely the two tools
-`memory_recall` and `memory_retain`. NanoClaw's trunk knows nothing about
-Hindsight; it just speaks MCP. Other memory backends (mem0, letta, etc.)
-can drop in by exposing the same two tools — no NanoClaw changes.
+## Scope
 
-## Architecture
+This repo used to bundle a Hindsight Docker stack plus an MCP wrapper. That
+was a mistake — the MCP wrapper is generic (any client can use it, not just
+NanoClaw) and the Hindsight stack is operator-owned, not agent-owned.
 
-```
-  NanoClaw (host) ─── MCP/HTTP ──→ hindsight-mcp ─── HTTP ──→ hindsight
-       │                              :4412                   :8888
-       │                              (this repo)             (vectorize)
-       │
-       └── src/memory.ts (~120 LoC, generic MCP client; no provider-specific code)
-```
+The wrapper now lives in its own private repo as the **universal
+hindsight-mcp** (deployed once per host, multi-tenant via per-client
+bearer tokens). This repo holds only the NanoClaw-side glue:
 
-The wrapper service is a tiny streamable-HTTP MCP server. Per call it
-translates `memory_recall(group, query)` and `memory_retain(group, content)`
-into Hindsight's per-bank API. Bank-id is derived per group folder, so
-each group gets isolated memory.
+- A single `/add-hindsight` skill that does the install-time wiring
+  (mount-allowlist, per-agent `container.json`, default-template patch
+  for new groups).
+- Companion runtime guidance for agents (recall/retain discipline) gets
+  installed as a NanoClaw container skill — see the install skill for
+  the file layout.
 
 ## Install
 
-This repo is consumed by the NanoClaw `/add-hindsight` skill — typically
-you don't run anything manually. The skill walks through:
+The install skill lives at `.claude/skills/add-hindsight/SKILL.md`.
 
-1. Cloning this repo onto the host.
-2. Asking for a Hindsight LLM API key (OpenAI etc.) → writes `.env`.
-3. `docker compose up -d` → starts both `hindsight` and `hindsight-mcp`.
-4. Setting `MEMORY_MCP_URL=http://localhost:4412/mcp` in NanoClaw's `.env`.
-5. Restarting NanoClaw → memory provider auto-connects on first call.
-
-If you want to set it up by hand:
+In your NanoClaw v2 install:
 
 ```bash
-git clone https://github.com/carstenf/nanoclaw-hindsight.git
-cd nanoclaw-hindsight
-cp .env.example .env
-# edit .env and set HINDSIGHT_LLM_API_KEY=...
-docker compose up -d
-# verify
-curl -s http://localhost:4412/health
+# 1. Copy the skill into your install
+mkdir -p .claude/skills/add-hindsight
+cp <this-repo>/.claude/skills/add-hindsight/SKILL.md .claude/skills/add-hindsight/
+
+# 2. Run it
+/add-hindsight
 ```
 
-Then in NanoClaw's `.env`:
+The skill walks you through:
+
+1. Verifying the universal hindsight-mcp is reachable from your host
+2. Adding the binary path to your nanoclaw mount-allowlist
+3. Wiring each agent group's `container.json` (per-agent stdio MCP server +
+   read-only volume mount of the binary)
+4. (Optional) Patching `src/group-init.ts` so newly-created groups are
+   auto-wired
+
+It assumes the universal hindsight-mcp is **already deployed** by the
+operator who owns the Hindsight engine. If that hasn't happened yet, the
+skill won't help — talk to that operator first.
+
+## Architecture (after install)
 
 ```
-MEMORY_MCP_URL=http://localhost:4412/mcp
+NanoClaw agent container ──── stdio ────► hindsight-mcp-stdio binary ──── HTTP ────► Hindsight engine
+  (MCP client, per-session)               (mounted read-only from host)            (separate compose stack on the host)
 ```
 
-Restart NanoClaw and watch its log for `memory_mcp_connected`.
+Each agent group writes/reads its own bank under `<prefix>:<group-folder>`,
+where `<prefix>` is set per-install via `HINDSIGHT_BANK_PREFIX` env (default
+`nanoclaw`). Banks are isolated; an agent in group A cannot touch group B's
+memory.
 
-## Ports
+## Why a separate skill instead of an `/add-mcp-server` flow
 
-All bound to `127.0.0.1` by default:
+Hindsight needs three things wired at once that no generic flow handles:
+a host-path volume mount under nanoclaw's allowlist, a stdio command line
+referencing the mounted binary path, and a runtime discipline skill for
+the agent. `/add-hindsight` ships them as one idempotent recipe; manual
+wiring is fragile (the path-prefix gotcha alone bit me once — see the
+skill's pitfalls section).
 
-| Port | Service          |
-|------|------------------|
-| 4410 | Hindsight HTTP   |
-| 4411 | Hindsight Web UI |
-| 4412 | hindsight-mcp    |
+## Legacy
 
-## Development
-
-```bash
-npm install
-npm run dev            # tsx src/server.ts — talks to a Hindsight at HINDSIGHT_URL
-npm run build          # tsc → dist/
-docker build -t nanoclaw-hindsight-mcp:dev .
-```
+The previous v1 bundled stack (Dockerfile + docker-compose + MCP wrapper
+TS source) is preserved on the `legacy/v1-bundled-stack` branch. Use it
+only if you actually want to run a Hindsight instance bundled with a
+single NanoClaw install — for new installs, prefer the universal
+hindsight-mcp.
 
 ## License
 
