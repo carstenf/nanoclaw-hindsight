@@ -18,6 +18,12 @@ isn't, that's out of scope here — talk to the operator who owns
 - Hindsight engine reachable from the host (default: `http://10.0.0.2:3850`)
 - ACLs that let nanoclaw's container uid (1001 = node) read the binary path
 
+It also assumes the **container skill** (`container/skills/hindsight/SKILL.md`)
+has been copied into the NanoClaw install. That skill teaches the agent
+runtime discipline (when to recall, what to retain, anti-patterns). Without
+it the wiring works but the agent will over-retain or hallucinate "saved".
+The README for this repo has the one-liner copy command for both skills.
+
 ## Phase 1: Pre-flight
 
 ### 1.1 Verify hindsight-mcp reachability and binary

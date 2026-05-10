@@ -13,29 +13,35 @@ NanoClaw) and the Hindsight stack is operator-owned, not agent-owned.
 
 The wrapper now lives in its own private repo as the **universal
 hindsight-mcp** (deployed once per host, multi-tenant via per-client
-bearer tokens). This repo holds only the NanoClaw-side glue:
+bearer tokens). This repo holds only the NanoClaw-side glue, two
+artifacts:
 
-- A single `/add-hindsight` skill that does the install-time wiring
-  (mount-allowlist, per-agent `container.json`, default-template patch
-  for new groups).
-- Companion runtime guidance for agents (recall/retain discipline) gets
-  installed as a NanoClaw container skill — see the install skill for
-  the file layout.
+| Path | What it is | When it runs |
+|------|-----------|--------------|
+| `.claude/skills/add-hindsight/SKILL.md` | **Install skill.** Walks the operator through wiring an existing NanoClaw install to a running hindsight-mcp. | Once per install, by the human operator. |
+| `container/skills/hindsight/SKILL.md` | **Container (runtime) skill.** Mounted into every agent session, teaches the agent recall/retain discipline (when to call which tool, what counts as "durable", anti-patterns). | Continuously, in every agent session, in-band. |
+
+Both are needed. Without the install skill the agent has no MCP server
+wired. Without the container skill the agent has the tools but no
+discipline — it tends to over-retain or hallucinate "saved".
 
 ## Install
-
-The install skill lives at `.claude/skills/add-hindsight/SKILL.md`.
 
 In your NanoClaw v2 install:
 
 ```bash
-# 1. Copy the skill into your install
-mkdir -p .claude/skills/add-hindsight
+# 1. Copy both skills into your install
+mkdir -p .claude/skills/add-hindsight container/skills/hindsight
 cp <this-repo>/.claude/skills/add-hindsight/SKILL.md .claude/skills/add-hindsight/
+cp <this-repo>/container/skills/hindsight/SKILL.md container/skills/hindsight/
 
-# 2. Run it
+# 2. Run the install skill
 /add-hindsight
 ```
+
+The container skill `hindsight` will be available to every agent on the
+next container spawn (NanoClaw mounts `container/skills/` as `/app/skills:ro`
+and exposes them via the agent's `Skill` tool).
 
 The skill walks you through:
 
